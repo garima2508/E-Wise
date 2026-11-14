@@ -1,41 +1,143 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { 
-  Recycle, Trophy, Flame, Sparkles, ArrowRight, Sun, Moon, LogOut, 
-  User, Lock, Building2, PlusCircle, LayoutDashboard, History,
-  Bot, ChevronLeft, ChevronRight, Send, X, Info, Gift, ExternalLink,
-  ShieldAlert, Cpu, Wrench, Tag, CheckCircle2, MapPin, Calendar, Clock,
-  XCircle, UserCheck, Smartphone, Battery, Laptop, CheckCircle, HelpCircle
+  Recycle, Trophy, Flame, Sparkles, Sun, Moon, LogOut, 
+  Building2, PlusCircle, LayoutDashboard, Bot, ChevronLeft, 
+  ChevronRight, Send, X, Info, Gift, ExternalLink,
+  Cpu, Wrench, Tag, MapPin, XCircle, Smartphone, Battery, 
+  Laptop, CheckCircle, HelpCircle, Bell, Camera, Leaf, 
+  Droplets, Truck, QrCode, ShoppingCart, Download, Trash2, History,
+  ArrowRight, ShieldCheck, Award, Check
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000/api';
 
+const AREAS_BY_CITY = {
+  Mumbai: ['Andheri West', 'Bandra West', 'Powai', 'South Mumbai', 'Juhu', 'Thane West'],
+  Delhi: ['South Delhi (Saket / GK)', 'Dwarka', 'Connaught Place', 'Rohini', 'Lajpat Nagar', 'Vasant Kunj'],
+  Bengaluru: ['Koramangala', 'Whitefield', 'Indiranagar', 'Electronic City', 'Jayanagar', 'HSR Layout']
+};
+
 const WORKERS_BY_CITY = {
   Mumbai: [
-    "Ramesh Kumar (South Mumbai Hub)",
-    "Vijay Salunkhe (Andheri / Western Suburbs)",
-    "Prakash Mane (Powai / Central Suburbs)"
+    { name: "Ramesh Kumar (South Mumbai Hub)", keywords: ["south", "colaba", "dadar"] },
+    { name: "Vijay Salunkhe (Andheri / Bandra West Hub)", keywords: ["andheri", "bandra", "juhu", "west"] },
+    { name: "Prakash Mane (Powai / Thane Central Hub)", keywords: ["powai", "thane", "kurla", "central"] }
   ],
   Delhi: [
-    "Suresh Sharma (South Delhi Center)",
-    "Amit Verma (Dwarka / West Delhi)",
-    "Rajesh Gupta (Connaught Place Hub)"
+    { name: "Suresh Sharma (South Delhi / Saket / Lajpat Hub)", keywords: ["south", "saket", "gk", "lajpat", "vasant"] },
+    { name: "Amit Verma (Dwarka / West Delhi Hub)", keywords: ["dwarka", "janakpuri", "west"] },
+    { name: "Rajesh Gupta (Connaught Place / Central Hub)", keywords: ["connaught", "karol", "central"] },
+    { name: "Deepak Yadav (Rohini / North Delhi Hub)", keywords: ["rohini", "pitampura", "north"] }
   ],
   Bengaluru: [
-    "Kiran Gowda (Koramangala Hub)",
-    "Santhosh R (Whitefield Center)",
-    "Manjunath K (Indiranagar Depot)"
+    { name: "Kiran Gowda (Koramangala / HSR / Jayanagar Hub)", keywords: ["koramangala", "hsr", "jayanagar", "btm"] },
+    { name: "Santhosh R (Whitefield / Marathahalli East Hub)", keywords: ["whitefield", "marathahalli", "east"] },
+    { name: "Manjunath K (Indiranagar / MG Road Central Hub)", keywords: ["indiranagar", "mg road", "domlur"] },
+    { name: "Praveen Nair (Electronic City South Hub)", keywords: ["electronic", "bommanahalli"] }
   ]
 };
+
+function getBestWorkerForArea(city, area) {
+  const cityWorkers = WORKERS_BY_CITY[city] || [];
+  if (cityWorkers.length === 0) return "";
+  const lowerArea = (area || "").toLowerCase();
+  const exactMatch = cityWorkers.find(w => 
+    w.keywords.some(kw => lowerArea.includes(kw))
+  );
+  return exactMatch ? exactMatch.name : cityWorkers[0].name;
+}
+
+function buildStageNotifications(requestsList, existingNotifications = []) {
+  const map = new Map(existingNotifications.map(n => [n.stageKey, n]));
+
+  requestsList.forEach(r => {
+    const key1 = `${r.id}-stage1`;
+    if (!map.has(key1)) {
+      map.set(key1, {
+        stageKey: key1,
+        title: `Stage 1 • Request Received (${r.id})`,
+        desc: `${r.devices} scheduled for ${r.pickupDate} (${r.area}).`,
+        status: 'Pending Verification',
+        unread: true
+      });
+    }
+
+    if (r.status === 'Rejected') {
+      const keyRej = `${r.id}-rejected`;
+      if (!map.has(keyRej)) {
+        map.set(keyRej, {
+          stageKey: keyRej,
+          title: `Request Rejected (${r.id})`,
+          desc: `${r.devices} • Reason: ${r.rejectionReason}`,
+          status: 'Rejected',
+          unread: true
+        });
+      }
+    }
+
+    if (r.status === 'Accepted') {
+      const key2 = `${r.id}-stage2`;
+      if (!map.has(key2)) {
+        map.set(key2, {
+          stageKey: key2,
+          title: `Stage 2 • Worker Dispatched (${r.id})`,
+          desc: `${r.assignedWorker} assigned for ${r.devices}.`,
+          status: 'Accepted',
+          unread: true
+        });
+      }
+    }
+
+    if (r.status === 'Accepted' && r.verifiedByQR === 1) {
+      const key3 = `${r.id}-stage3`;
+      if (!map.has(key3)) {
+        map.set(key3, {
+          stageKey: key3,
+          title: `Stage 3 • QR Verified (${r.id})`,
+          desc: `Field pickup confirmed for ${r.devices}.`,
+          status: 'Accepted',
+          unread: true
+        });
+      }
+
+      const key4 = `${r.id}-stage4`;
+      if (!map.has(key4)) {
+        map.set(key4, {
+          stageKey: key4,
+          title: `Stage 4 • +${r.points} PTS Credited (${r.id})`,
+          desc: `Rewards unlocked for ${r.devices}!`,
+          status: 'Accepted',
+          unread: true
+        });
+      }
+    }
+  });
+
+  return Array.from(map.values()).reverse();
+}
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [notifications, setNotifications] = useState([]);
 
   const isDark = theme === 'dark';
+
+  useEffect(() => {
+    if (user && user.role === 'recycler') {
+      fetch(`${API_BASE}/requests/${user.userId}`)
+        .then(res => res.json())
+        .then(data => {
+          setNotifications(prev => buildStageNotifications(data, prev));
+        });
+    } else {
+      setNotifications([]);
+    }
+  }, [user]);
 
   if (isLoading) {
     return <SplashLoadingScreen onComplete={() => setIsLoading(false)} isDark={isDark} />;
@@ -46,16 +148,26 @@ export default function App() {
       <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${
         isDark ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-800'
       }`}>
-        <Navbar theme={theme} setTheme={setTheme} user={user} />
+        <Navbar 
+          theme={theme} 
+          setTheme={setTheme} 
+          user={user} 
+          notifications={notifications}
+          setNotifications={setNotifications}
+          setUser={setUser}
+        />
         
         <main className="flex-1 flex flex-col">
           <Routes>
             <Route path="/" element={
+              user ? <Navigate to={user.role === 'management' ? '/admin/dashboard' : '/dashboard'} /> : <PublicLandingPage isDark={isDark} />
+            } />
+            <Route path="/login" element={
               user ? <Navigate to={user.role === 'management' ? '/admin/dashboard' : '/dashboard'} /> : <AuthPage setUser={setUser} isDark={isDark} />
             } />
             <Route path="/dashboard/*" element={
               <ProtectedRoute user={user} role="recycler">
-                <RecyclerLayout user={user} setUser={setUser} isDark={isDark} />
+                <RecyclerLayout user={user} setUser={setUser} isDark={isDark} setNotifications={setNotifications} />
               </ProtectedRoute>
             } />
             <Route path="/admin/*" element={
@@ -72,35 +184,26 @@ export default function App() {
   );
 }
 
-// Fixed & Smoothed Splash Loading Screen
 function SplashLoadingScreen({ onComplete, isDark }) {
   const [showPortalName, setShowPortalName] = useState(true);
   const [iconIndex, setIconIndex] = useState(0);
-
   const icons = [Smartphone, Laptop, Battery, Cpu];
 
   useEffect(() => {
-    // Show Portal Name for 1.8 seconds first
-    const portalTimer = setTimeout(() => {
-      setShowPortalName(false);
-    }, 1800);
-
+    const portalTimer = setTimeout(() => setShowPortalName(false), 1800);
     return () => clearTimeout(portalTimer);
   }, []);
 
   useEffect(() => {
     if (showPortalName) return;
-
-    // Cycle through device icons without reloading the container
     const iconInterval = setInterval(() => {
       setIconIndex(prev => {
         if (prev < icons.length - 1) return prev + 1;
         clearInterval(iconInterval);
-        setTimeout(onComplete, 400); // Complete loading after last icon
+        setTimeout(onComplete, 400);
         return prev;
       });
     }, 700);
-
     return () => clearInterval(iconInterval);
   }, [showPortalName]);
 
@@ -111,8 +214,6 @@ function SplashLoadingScreen({ onComplete, isDark }) {
       isDark ? 'bg-black text-white' : 'bg-slate-900 text-slate-100'
     }`}>
       <div className="flex flex-col items-center space-y-6">
-        
-        {/* Static Title Container */}
         <div className="text-center">
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-wide bg-gradient-to-r from-lime-400 to-teal-300 bg-clip-text text-transparent">
             E-Wise Portal
@@ -120,7 +221,6 @@ function SplashLoadingScreen({ onComplete, isDark }) {
           <p className="text-xs text-slate-400 mt-1">Smart E-Waste Management Platform</p>
         </div>
 
-        {/* Icon Container with Smooth Morphs */}
         <div className="w-24 h-24 rounded-3xl bg-lime-400/10 border border-lime-400/30 text-lime-400 flex items-center justify-center shadow-2xl relative overflow-hidden">
           <AnimatePresence mode="wait">
             {showPortalName ? (
@@ -145,7 +245,6 @@ function SplashLoadingScreen({ onComplete, isDark }) {
           </AnimatePresence>
         </div>
 
-        {/* Continuous Progress Bar */}
         <div className="w-44 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2">
           <motion.div 
             className="h-full bg-lime-400"
@@ -156,20 +255,26 @@ function SplashLoadingScreen({ onComplete, isDark }) {
             transition={{ ease: 'linear', duration: 0.4 }}
           />
         </div>
-
       </div>
     </div>
   );
 }
 
 function ProtectedRoute({ user, role, children }) {
-  if (!user) return <Navigate to="/" />;
-  if (role && user.role !== role) return <Navigate to="/" />;
+  if (!user) return <Navigate to="/login" />;
+  if (role && user.role !== role) return <Navigate to="/login" />;
   return children;
 }
 
-function Navbar({ theme, setTheme, user }) {
+function Navbar({ theme, setTheme, user, notifications, setNotifications, setUser }) {
   const isDark = theme === 'dark';
+  const [bellOpen, setBellOpen] = useState(false);
+  const unreadCount = notifications.filter(n => n.unread).length;
+
+  const markAllRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+  };
+
   return (
     <header className={`border-b sticky top-0 z-40 backdrop-blur-md ${
       isDark ? 'border-slate-800 bg-slate-950/80' : 'border-slate-200 bg-white/80'
@@ -190,25 +295,156 @@ function Navbar({ theme, setTheme, user }) {
         </Link>
 
         <div className="flex items-center gap-3">
+          {user && user.role === 'recycler' && (
+            <div className="relative">
+              <button
+                onClick={() => setBellOpen(!bellOpen)}
+                className={`p-2 rounded-xl border relative ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700'
+                }`}>
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {bellOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    className={`absolute right-0 mt-2 w-80 rounded-2xl border shadow-2xl p-3 z-50 ${
+                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'
+                    }`}>
+                    <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-800">
+                      <span className="text-xs font-bold">All Stage Notifications ({notifications.length})</span>
+                      {unreadCount > 0 && (
+                        <button onClick={markAllRead} className="text-[10px] text-lime-400 hover:underline">
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto space-y-2">
+                      {notifications.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-4">No notifications yet.</p>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={i} className={`p-2.5 rounded-xl border text-xs ${
+                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+                          }`}>
+                            <p className={`font-bold ${
+                              n.status === 'Accepted' ? 'text-emerald-400' :
+                              n.status === 'Rejected' ? 'text-rose-400' : 'text-amber-400'
+                            }`}>{n.title}</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">{n.desc}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
             className={`p-2 rounded-xl border ${isDark ? 'bg-slate-900 border-slate-800 text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {user && (
-            <div className="flex items-center gap-2 border-l pl-3 border-slate-700">
-              <span className="text-xs font-semibold">{user.name}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border uppercase font-bold ${
-                isDark ? 'bg-lime-500/10 text-lime-400 border-lime-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+          {user ? (
+            <button
+              onClick={() => setUser(null)}
+              className={`px-3 py-1.5 rounded-xl font-semibold text-xs transition border ${
+                isDark ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-rose-50 text-rose-600 border-rose-200'
               }`}>
-                {user.role}
-              </span>
-            </div>
+              Logout
+            </button>
+          ) : (
+            <Link
+              to="/login"
+              className={`px-4 py-2 rounded-xl font-bold text-xs transition shadow-md ${
+                isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+              }`}>
+              Login
+            </Link>
           )}
         </div>
       </div>
     </header>
+  );
+}
+
+// Public Landing / About Info Page for Visitors
+function PublicLandingPage({ isDark }) {
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl mx-auto space-y-12 my-8">
+      {/* Hero Section */}
+      <div className="text-center space-y-4 max-w-3xl">
+        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+          isDark ? 'bg-lime-400/10 text-lime-400 border-lime-400/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        }`}>
+          🌱 Sustainable E-Waste Management Platform
+        </span>
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight">
+          Turn Old Electronics into <span className={`bg-gradient-to-r bg-clip-text text-transparent ${
+            isDark ? 'from-lime-400 to-teal-300' : 'from-emerald-600 to-teal-700'
+          }`}>Eco Rewards</span>
+        </h1>
+        <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">
+          E-Wise connects conscious recyclers with municipal hubs across Mumbai, Delhi, and Bengaluru. Schedule pickups, verify via secure QR codes, track environmental impact, and earn redeemable eco-points.
+        </p>
+
+        <div className="pt-4 flex flex-col sm:flex-row justify-center gap-4">
+          <button
+            onClick={() => navigate('/login')}
+            className={`px-8 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-xl ${
+              isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+            }`}>
+            Let's Get Started <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Feature Highlights Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+        <div className={`p-6 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="w-10 h-10 rounded-xl bg-lime-400/10 text-lime-400 flex items-center justify-center font-bold">
+            <ShoppingCart className="w-5 h-5" />
+          </div>
+          <h3 className="text-base font-bold">Multi-Device Cart</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Consolidate your old laptops, smartphones, batteries, and chargers into a single batch pickup request with photo condition uploads.
+          </p>
+        </div>
+
+        <div className={`p-6 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="w-10 h-10 rounded-xl bg-sky-400/10 text-sky-400 flex items-center justify-center font-bold">
+            <QrCode className="w-5 h-5" />
+          </div>
+          <h3 className="text-base font-bold">Secure QR Verification</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Field workers scan your unique request QR code upon arrival at your doorstep to instantly verify pickup and release reward points.
+          </p>
+        </div>
+
+        <div className={`p-6 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="w-10 h-10 rounded-xl bg-amber-400/10 text-amber-400 flex items-center justify-center font-bold">
+            <Award className="w-5 h-5" />
+          </div>
+          <h3 className="text-base font-bold">Leaderboards & Rewards</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Compete on regional recycler leaderboards across metropolitan hubs and convert your earned E-Points into partner discounts and eco-vouchers.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -218,7 +454,13 @@ function AuthPage({ setUser, isDark }) {
   const [error, setError] = useState('');
 
   const [loginData, setLoginData] = useState({ userId: '', password: '' });
-  const [signupData, setSignupData] = useState({ name: '', email: '', userId: '', password: '' });
+  const [signupData, setSignupData] = useState({ name: '', email: '', userId: '', password: '', city: 'Mumbai' });
+
+  const handleRoleSwitch = (newRole) => {
+    setRole(newRole);
+    setLoginData({ userId: '', password: '' });
+    setError('');
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -247,7 +489,7 @@ function AuthPage({ setUser, isDark }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 perspective-1000">
+    <div className="flex-1 flex flex-col items-center justify-center p-4 perspective-1000 my-8">
       {error && (
         <div className="mb-4 p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs rounded-xl max-w-md w-full text-center">
           {error}
@@ -264,33 +506,39 @@ function AuthPage({ setUser, isDark }) {
           <div className="flex gap-2 p-1 bg-slate-900 rounded-xl mb-6 border border-slate-800">
             <button 
               type="button"
-              onClick={() => setRole('recycler')} 
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition ${
+              onClick={() => handleRoleSwitch('recycler')} 
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
                 role === 'recycler' 
-                  ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white') 
-                  : 'text-slate-400'
+                  ? (isDark ? 'bg-lime-400 text-black shadow-lg' : 'bg-emerald-600 text-white shadow-lg') 
+                  : 'text-slate-400 hover:text-white'
               }`}>
               Recycler
             </button>
             <button 
               type="button"
-              onClick={() => setRole('management')} 
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition ${
+              onClick={() => handleRoleSwitch('management')} 
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
                 role === 'management' 
-                  ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white') 
-                  : 'text-slate-400'
+                  ? (isDark ? 'bg-lime-400 text-black shadow-lg' : 'bg-emerald-600 text-white shadow-lg') 
+                  : 'text-slate-400 hover:text-white'
               }`}>
               Management
             </button>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <motion.form 
+            key={role}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            onSubmit={handleLogin} 
+            className="space-y-4">
             <div>
               <label className="block text-xs font-medium mb-1 text-slate-400">User ID</label>
               <input 
                 type="text" required value={loginData.userId} 
                 onChange={e => setLoginData({...loginData, userId: e.target.value})}
-                placeholder="Enter User ID (e.g. recycler1 or admin1)"
+                placeholder="Enter User ID"
                 className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
                   isDark ? 'bg-slate-900 border-slate-800 text-white focus:border-lime-400' : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-emerald-600'
                 }`} 
@@ -312,7 +560,7 @@ function AuthPage({ setUser, isDark }) {
             }`}>
               Login as {role === 'recycler' ? 'Recycler' : 'Management'}
             </button>
-          </form>
+          </motion.form>
 
           <p className="text-xs text-slate-400 text-center mt-6">
             Don't have an account?{' '}
@@ -358,6 +606,18 @@ function AuthPage({ setUser, isDark }) {
                 isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'
               }`} 
             />
+            <div>
+              <label className="block text-xs font-medium mb-1 text-slate-400">Home City</label>
+              <select 
+                value={signupData.city} onChange={e => setSignupData({...signupData, city: e.target.value})}
+                className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'
+                }`}>
+                <option value="Mumbai">Mumbai</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Bengaluru">Bengaluru</option>
+              </select>
+            </div>
             <button type="submit" className={`w-full font-semibold py-2.5 rounded-xl transition mt-2 ${
               isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
             }`}>
@@ -394,21 +654,21 @@ function OnboardingModal({ user, onClose, isDark }) {
             <Sparkles className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-bold">Welcome to E-Wise, {user.name}! 👋</h2>
-          <p className="text-xs text-slate-400 mt-1">Your Portal Tour & Impact Guide:</p>
+          <p className="text-xs text-slate-400 mt-1">How Your 4-Stage Pickup & Reward System Works:</p>
         </div>
 
         <div className="space-y-3 text-xs text-slate-300 my-6">
           <div className={`p-3 rounded-xl border flex gap-3 items-start ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
-            <span className={`font-bold px-2 py-0.5 rounded ${isDark ? 'text-lime-400 bg-lime-400/10' : 'text-emerald-700 bg-emerald-100'}`}>1</span>
-            <p><b>Schedule Pickups:</b> Submit requests in <b>Recycled Items</b> with location & condition details. Points credit once management accepts!</p>
+            <ShoppingCart className="w-5 h-5 text-lime-400 shrink-0" />
+            <p><b>Recycle Devices:</b> Add multiple items to your e-waste cart, attach photos, analyze, and submit.</p>
           </div>
           <div className={`p-3 rounded-xl border flex gap-3 items-start ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
-            <span className={`font-bold px-2 py-0.5 rounded ${isDark ? 'text-lime-400 bg-lime-400/10' : 'text-emerald-700 bg-emerald-100'}`}>2</span>
-            <p><b>Learn & Locate:</b> Explore e-waste guidelines and active Indian collection hubs in <b>E-Waste Info</b>.</p>
+            <QrCode className="w-5 h-5 text-sky-400 shrink-0" />
+            <p><b>QR Pickup Verification:</b> Show your unique QR code to the field worker upon arrival. Once verified, points credit instantly!</p>
           </div>
           <div className={`p-3 rounded-xl border flex gap-3 items-start ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
-            <span className={`font-bold px-2 py-0.5 rounded ${isDark ? 'text-lime-400 bg-lime-400/10' : 'text-emerald-700 bg-emerald-100'}`}>3</span>
-            <p><b>Claim Rewards:</b> Redeem accepted E-Points for partner discounts in <b>Claim Rewards</b>.</p>
+            <History className="w-5 h-5 text-amber-400 shrink-0" />
+            <p><b>History & Live Stages:</b> Track every request across all 4 stages in the History tab.</p>
           </div>
         </div>
 
@@ -448,7 +708,7 @@ function GuidedBanner({ title, steps, isDark }) {
   );
 }
 
-function RecyclerLayout({ user, setUser, isDark }) {
+function RecyclerLayout({ user, setUser, isDark, setNotifications }) {
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState('main'); 
   const [requests, setRequests] = useState([]);
@@ -457,7 +717,10 @@ function RecyclerLayout({ user, setUser, isDark }) {
   useEffect(() => {
     fetch(`${API_BASE}/requests/${user.userId}`)
       .then(res => res.json())
-      .then(data => setRequests(data));
+      .then(data => {
+        setRequests(data);
+        setNotifications(prev => buildStageNotifications(data, prev));
+      });
   }, [user.userId]);
 
   const handleDismissOnboarding = async () => {
@@ -500,25 +763,14 @@ function RecyclerLayout({ user, setUser, isDark }) {
             </button>
 
             <button
-              onClick={() => setActiveTab('recycled')}
+              onClick={() => setActiveTab('recycle')}
               className={`w-full flex items-center gap-3 p-3 rounded-xl font-semibold text-xs transition ${
-                activeTab === 'recycled'
+                activeTab === 'recycle'
                   ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white')
                   : (isDark ? 'text-slate-400 hover:bg-slate-900' : 'text-slate-600 hover:bg-slate-100')
               }`}>
               <Recycle className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Recycled Items</span>}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('info')}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl font-semibold text-xs transition ${
-                activeTab === 'info'
-                  ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white')
-                  : (isDark ? 'text-slate-400 hover:bg-slate-900' : 'text-slate-600 hover:bg-slate-100')
-              }`}>
-              <Info className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>E-Waste Info</span>}
+              {!collapsed && <span>Recycle Devices</span>}
             </button>
 
             <button
@@ -530,6 +782,28 @@ function RecyclerLayout({ user, setUser, isDark }) {
               }`}>
               <Gift className="w-4 h-4 shrink-0" />
               {!collapsed && <span>Claim Rewards</span>}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl font-semibold text-xs transition ${
+                activeTab === 'history'
+                  ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white')
+                  : (isDark ? 'text-slate-400 hover:bg-slate-900' : 'text-slate-600 hover:bg-slate-100')
+              }`}>
+              <History className="w-4 h-4 shrink-0" />
+              {!collapsed && <span>History</span>}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl font-semibold text-xs transition ${
+                activeTab === 'info'
+                  ? (isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white')
+                  : (isDark ? 'text-slate-400 hover:bg-slate-900' : 'text-slate-600 hover:bg-slate-100')
+              }`}>
+              <Info className="w-4 h-4 shrink-0" />
+              {!collapsed && <span>Info</span>}
             </button>
           </nav>
         </div>
@@ -549,23 +823,28 @@ function RecyclerLayout({ user, setUser, isDark }) {
       </aside>
 
       <div className="flex-1 p-6 space-y-6">
-        {activeTab === 'main' && <MainDashboardView user={user} isDark={isDark} />}
-        {activeTab === 'recycled' && <RecycledItemsView user={user} setUser={setUser} requests={requests} setRequests={setRequests} isDark={isDark} />}
-        {activeTab === 'info' && <InfoView isDark={isDark} />}
+        {activeTab === 'main' && <MainDashboardView user={user} requests={requests} isDark={isDark} />}
+        {activeTab === 'recycle' && <RecycleDevicesView user={user} setRequests={setRequests} setNotifications={setNotifications} isDark={isDark} />}
         {activeTab === 'claim' && <ClaimRewardsView user={user} setUser={setUser} isDark={isDark} />}
+        {activeTab === 'history' && <HistoryView requests={requests} isDark={isDark} />}
+        {activeTab === 'info' && <InfoViewWithMapAndLinks isDark={isDark} />}
       </div>
     </div>
   );
 }
 
-function MainDashboardView({ user, isDark }) {
+function MainDashboardView({ user, requests, isDark }) {
+  const verifiedItems = requests.filter(r => r.status === 'Accepted' && r.verifiedByQR === 1);
+  const co2Saved = verifiedItems.length * 45;
+  const waterSaved = verifiedItems.length * 1200;
+
   return (
     <div className="space-y-6">
       <div className={`p-6 rounded-2xl border bg-gradient-to-r ${
         isDark ? 'from-slate-900 to-slate-950 border-slate-800' : 'from-emerald-50 to-teal-50 border-emerald-100'
       }`}>
         <h2 className="text-2xl font-bold">Welcome back, {user.name}! 👋</h2>
-        <p className="text-xs text-slate-400 mt-1">Your location-based pickup overview (Points are credited upon management verification):</p>
+        <p className="text-xs text-slate-400 mt-1">Your live gamified status and environmental sustainability impact:</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -591,94 +870,153 @@ function MainDashboardView({ user, isDark }) {
           </div>
         </div>
       </div>
+
+      <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <h3 className={`text-md font-bold mb-1 flex items-center gap-2 ${isDark ? 'text-lime-400' : 'text-emerald-600'}`}>
+          <Leaf className="w-5 h-5" /> Your CO₂ & Environmental Impact Calculator
+        </h3>
+        <p className="text-xs text-slate-400 mb-4">Calculated from your {verifiedItems.length} QR-verified pickup(s):</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`p-4 rounded-xl border flex items-center gap-4 ${
+            isDark ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+          }`}>
+            <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+              <Leaf className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Carbon Emissions Prevented</p>
+              <p className="text-2xl font-extrabold text-emerald-400">{co2Saved} kg CO₂e</p>
+              <p className="text-[11px] text-slate-500">Equivalent to planting {Math.max(1, Math.round(co2Saved / 20))} trees</p>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-xl border flex items-center gap-4 ${
+            isDark ? 'bg-sky-950/20 border-sky-500/20' : 'bg-sky-50 border-sky-200'
+          }`}>
+            <div className="p-3 rounded-xl bg-sky-500/10 text-sky-400">
+              <Droplets className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Clean Water Conserved</p>
+              <p className="text-2xl font-extrabold text-sky-400">{waterSaved.toLocaleString()} L</p>
+              <p className="text-[11px] text-slate-500">Saved from toxic heavy metal mining</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function RecycledItemsView({ user, setUser, requests, setRequests, isDark }) {
-  const [brandModel, setBrandModel] = useState('');
+function RecycleDevicesView({ user, setRequests, setNotifications, isDark }) {
+  const [cart, setCart] = useState([]);
+  const [deviceModel, setDeviceModel] = useState('');
   const [deviceType, setDeviceType] = useState('laptop');
   const [condition, setCondition] = useState('working_slow');
-  const [city, setCity] = useState('Mumbai');
-  const [area, setArea] = useState('Andheri West');
   
+  const [city, setCity] = useState(user.city || 'Mumbai');
+  const [selectedArea, setSelectedArea] = useState(AREAS_BY_CITY[user.city || 'Mumbai'][0]);
+  const [customArea, setCustomArea] = useState('');
+  const [deviceImage, setDeviceImage] = useState('');
+  const [analyzedPreview, setAnalyzedPreview] = useState(null);
+
   const availableDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
     return d.toISOString().split('T')[0];
   });
-
   const [pickupDate, setPickupDate] = useState(availableDates[0]);
+  const [timeSlot, setTimeSlot] = useState('Morning (9 AM - 12 PM)');
 
-  const getAvailableTimeSlots = () => {
-    const now = new Date();
-    const currentHour = now.getHours();
-    const isToday = pickupDate === now.toISOString().split('T')[0];
-
-    let slots = [
-      { label: 'Morning (9 AM - 12 PM)', startHour: 9 },
-      { label: 'Afternoon (12 PM - 4 PM)', startHour: 12 },
-      { label: 'Evening (4 PM - 7 PM)', startHour: 16 }
-    ];
-
-    if (isToday) {
-      slots = slots.filter(s => currentHour < s.startHour);
-    }
-    return slots.length > 0 ? slots : [{ label: 'Evening Express (6 PM - 8 PM)', startHour: 18 }];
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setDeviceImage(reader.result);
+    reader.readAsDataURL(file);
   };
 
-  const availableTimeSlots = getAvailableTimeSlots();
-  const [timeSlot, setTimeSlot] = useState(availableTimeSlots[0].label);
-  const [recommendation, setRecommendation] = useState(null);
-
-  const handleCalculate = (e) => {
+  const handleAddToCart = (e) => {
     e.preventDefault();
-    let action = 'Recycle';
+    if (!deviceModel.trim()) return;
+
     let pts = 50;
+    let action = 'Recycle';
+    if (condition === 'working_good') { pts = 120; action = 'Donate / Reuse'; }
+    else if (condition === 'working_slow') { pts = 80; action = 'Repair & Upcycle'; }
 
-    if (condition === 'working_good') { action = 'Donate / Reuse'; pts = 120; }
-    else if (condition === 'working_slow') { action = 'Repair & Upcycle'; pts = 80; }
+    const newItem = {
+      id: Date.now(),
+      model: deviceModel,
+      type: deviceType,
+      condition,
+      action,
+      points: pts
+    };
 
-    setRecommendation({ action, pts, device: `${brandModel} (${deviceType})` });
+    setCart([...cart, newItem]);
+    setDeviceModel('');
   };
 
-  const handleConfirm = async () => {
+  const removeFromCart = (id) => {
+    setCart(cart.filter(item => item.id !== id));
+  };
+
+  const totalCartPoints = cart.reduce((sum, item) => sum + item.points, 0);
+  const devicesString = cart.map(item => `${item.model} (${item.type})`).join(', ');
+  const finalArea = selectedArea === 'Other' ? customArea : selectedArea;
+
+  const handleAnalyzeRequest = (e) => {
+    e.preventDefault();
+    if (cart.length === 0) return alert('Please add at least one device to your e-waste cart.');
+    if (selectedArea === 'Other' && !customArea.trim()) return alert('Please enter your custom locality.');
+
+    setAnalyzedPreview({
+      devices: devicesString,
+      totalPts: totalCartPoints,
+      city,
+      area: finalArea,
+      pickupDate,
+      timeSlot
+    });
+  };
+
+  const handleBatchSubmit = async () => {
     const res = await fetch(`${API_BASE}/requests`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: user.userId,
-        device: recommendation.device,
-        action: recommendation.action,
-        points: recommendation.pts,
+        devices: devicesString,
+        action: 'Bulk Recycle',
+        points: totalCartPoints,
         city,
-        area,
+        area: finalArea,
         pickupDate,
-        timeSlot
+        timeSlot,
+        deviceImage
       })
     });
     const data = await res.json();
     setRequests(data.requests);
-    setRecommendation(null);
-    setBrandModel('');
-    confetti({ particleCount: 60 });
-  };
+    setNotifications(prev => buildStageNotifications(data.requests, prev));
 
-  const getDeviceIcon = (type) => {
-    if (type.includes('smartphone')) return <Smartphone className="w-6 h-6 text-sky-400" />;
-    if (type.includes('battery')) return <Battery className="w-6 h-6 text-amber-400" />;
-    return <Laptop className="w-6 h-6 text-lime-400" />;
+    setCart([]);
+    setDeviceImage('');
+    setAnalyzedPreview(null);
+    confetti({ particleCount: 70 });
   };
 
   return (
     <div className="space-y-6">
       {user.hasSeenOnboarding === 0 && (
         <GuidedBanner 
-          title="Registering Your First Pickup"
+          title="Recycling Devices"
           steps={[
-            "Fill in Brand/Model and Condition for smart AI disposition routing.",
-            "Select your City and Area locality so local hubs can assign workers.",
-            "Choose a valid non-past date and slot, then click Analyze Request to review."
+            "Add devices to your cart and optionally upload a photo for condition verification.",
+            "Choose City, Locality, Date & Time Slot, then click Analyze Request.",
+            "Confirm your request—view its 4 stages and QR code anytime in the History tab!"
           ]}
           isDark={isDark}
         />
@@ -686,16 +1024,16 @@ function RecycledItemsView({ user, setUser, requests, setRequests, isDark }) {
 
       <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
         <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-lime-400' : 'text-emerald-600'}`}>
-          <PlusCircle className="w-5 h-5" /> Schedule Weekly Pickup & Diagnostics
+          <Recycle className="w-5 h-5" /> Recycle Devices & Schedule Pickup
         </h3>
 
-        <form onSubmit={handleCalculate} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <form onSubmit={handleAddToCart} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Brand & Model</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Device Model / Name</label>
               <input 
-                type="text" required placeholder="e.g. HP Pavilion / iPhone X"
-                value={brandModel} onChange={e => setBrandModel(e.target.value)}
+                type="text" placeholder="e.g. Dell Inspiron / iPhone 8"
+                value={deviceModel} onChange={e => setDeviceModel(e.target.value)}
                 className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
                   isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                 }`}
@@ -710,88 +1048,147 @@ function RecycledItemsView({ user, setUser, requests, setRequests, isDark }) {
                 }`}>
                 <option value="laptop">Laptop / PC</option>
                 <option value="smartphone">Smartphone / Tablet</option>
-                <option value="battery">Battery / Charger</option>
+                <option value="battery">Battery / Power Bank</option>
+                <option value="charger">Charger / Cables</option>
               </select>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Current Condition / Problem Status</label>
-            <select 
-              value={condition} onChange={e => setCondition(e.target.value)}
-              className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
-                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}>
-              <option value="working_good">Fully Functional / Good Shape</option>
-              <option value="working_slow">Functional with Issues (Slow/Laggy)</option>
-              <option value="damaged">Damaged Screen / Hardware Failure</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">City</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Condition</label>
               <select 
-                value={city} onChange={e => setCity(e.target.value)}
+                value={condition} onChange={e => setCondition(e.target.value)}
                 className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
                   isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                 }`}>
-                <option value="Mumbai">Mumbai</option>
-                <option value="Delhi">Delhi</option>
-                <option value="Bengaluru">Bengaluru</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Area / Locality</label>
-              <input 
-                type="text" required placeholder="e.g. Andheri West, Bandra, Koramangala"
-                value={area} onChange={e => setArea(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
-                  isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Preferred Date (Non-Past)</label>
-              <select 
-                value={pickupDate} onChange={e => setPickupDate(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
-                  isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}>
-                {availableDates.map(dateStr => (
-                  <option key={dateStr} value={dateStr}>{dateStr}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Time Slot Window (Valid Only)</label>
-              <select 
-                value={timeSlot} onChange={e => setTimeSlot(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
-                  isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}>
-                {availableTimeSlots.map((slot, i) => (
-                  <option key={i} value={slot.label}>{slot.label}</option>
-                ))}
+                <option value="working_good">Good / Reusable (+120 PTS)</option>
+                <option value="working_slow">Functional with Issues (+80 PTS)</option>
+                <option value="damaged">Damaged / Scrap (+50 PTS)</option>
               </select>
             </div>
           </div>
 
-          <button type="submit" className={`w-full font-semibold py-2.5 rounded-xl transition ${
-            isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          <button type="submit" className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 ${
+            isDark ? 'bg-slate-800 hover:bg-slate-700 text-lime-400 border border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-emerald-700 border border-slate-200'
           }`}>
-            Analyze Request
+            <PlusCircle className="w-4 h-4" /> Add Item to Cart
           </button>
         </form>
 
-        {recommendation && (
+        {cart.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-slate-800 space-y-4">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">Cart Items ({cart.length}) • Estimated: {totalCartPoints} PTS</h4>
+              <button onClick={() => setCart([])} className="text-xs text-rose-400 hover:underline">Clear Cart</button>
+            </div>
+
+            <div className="space-y-2">
+              {cart.map(item => (
+                <div key={item.id} className={`p-3 rounded-xl border flex justify-between items-center text-xs ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div>
+                    <span className="font-bold">{item.model}</span> ({item.type}) • <span className="text-amber-400">+{item.points} PTS</span>
+                  </div>
+                  <button onClick={() => removeFromCart(item.id)} className="p-1 text-rose-400 hover:text-rose-300">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Upload Device Photo for Verification (Optional)</label>
+              <label className={`flex items-center justify-center gap-2 w-full rounded-xl px-3 py-2 text-xs font-medium border cursor-pointer transition ${
+                isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-lime-400' : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-600'
+              }`}>
+                <Camera className="w-4 h-4 text-amber-400" />
+                <span>{deviceImage ? 'Photo Attached ✓' : 'Choose Image File'}</span>
+                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+              </label>
+            </div>
+
+            {deviceImage && (
+              <div className="flex items-center gap-3 p-2 rounded-xl border border-slate-800 bg-slate-900/40">
+                <img src={deviceImage} alt="Preview" className="w-12 h-12 rounded-lg object-cover border border-slate-700" />
+                <div className="flex-1 text-xs">
+                  <p className="font-semibold text-lime-400">Image Preview Ready</p>
+                  <p className="text-[11px] text-slate-400">Admin will view this image to verify device condition.</p>
+                </div>
+                <button type="button" onClick={() => setDeviceImage('')} className="text-xs text-rose-400 hover:underline px-2">Remove</button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">City</label>
+                <select 
+                  value={city} onChange={e => { setCity(e.target.value); setSelectedArea(AREAS_BY_CITY[e.target.value][0]); }}
+                  className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}>
+                  <option value="Mumbai">Mumbai</option>
+                  <option value="Delhi">Delhi</option>
+                  <option value="Bengaluru">Bengaluru</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Area Locality</label>
+                <select 
+                  value={selectedArea} onChange={e => setSelectedArea(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-sm border focus:outline-none ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}>
+                  {(AREAS_BY_CITY[city] || []).map(a => <option key={a} value={a}>{a}</option>)}
+                  <option value="Other">Other (Custom Locality)</option>
+                </select>
+              </div>
+            </div>
+
+            {selectedArea === 'Other' && (
+              <input 
+                type="text" placeholder="Type custom locality/landmark..."
+                value={customArea} onChange={e => setCustomArea(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2 text-sm border ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
+              />
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Pickup Date</label>
+                <select 
+                  value={pickupDate} onChange={e => setPickupDate(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-sm border ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}>
+                  {availableDates.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Time Slot</label>
+                <select 
+                  value={timeSlot} onChange={e => setTimeSlot(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-sm border ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}>
+                  <option value="Morning (9 AM - 12 PM)">Morning (9 AM - 12 PM)</option>
+                  <option value="Afternoon (12 PM - 4 PM)">Afternoon (12 PM - 4 PM)</option>
+                  <option value="Evening (4 PM - 7 PM)">Evening (4 PM - 7 PM)</option>
+                </select>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleAnalyzeRequest}
+              className={`w-full font-bold py-3 rounded-xl transition ${
+                isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+              }`}>
+              Analyze Request ({cart.length} items • {totalCartPoints} PTS)
+            </button>
+          </div>
+        )}
+
+        {analyzedPreview && (
           <div className={`mt-4 p-4 rounded-xl border space-y-2 ${isDark ? 'border-lime-500/30 bg-lime-950/20' : 'border-emerald-200 bg-emerald-50'}`}>
-            <p className="text-xs font-bold text-amber-500">Route: {recommendation.action} (+{recommendation.pts} PTS awarded upon admin acceptance)</p>
-            <p className="text-xs text-slate-400">Pickup Location: {area}, {city} • Schedule: {pickupDate} ({timeSlot})</p>
-            <button onClick={handleConfirm} className={`px-4 py-2 rounded-xl text-xs font-bold ${
+            <p className="text-xs font-bold text-amber-500">✨ AI Analysis Complete: +{analyzedPreview.totalPts} PTS credited upon QR verification at pickup</p>
+            <p className="text-xs text-slate-400">Devices: {analyzedPreview.devices}</p>
+            <p className="text-xs text-slate-400">Location: {analyzedPreview.area}, {analyzedPreview.city} • Schedule: {analyzedPreview.pickupDate} ({analyzedPreview.timeSlot})</p>
+            <button onClick={handleBatchSubmit} className={`px-4 py-2 rounded-xl text-xs font-bold ${
               isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'
             }`}>
               Confirm Schedule Request
@@ -799,51 +1196,149 @@ function RecycledItemsView({ user, setUser, requests, setRequests, isDark }) {
           </div>
         )}
       </div>
-
-      <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-        <h3 className="text-md font-bold mb-4">Your Pickup Requests</h3>
-        <div className="space-y-3">
-          {requests.map(r => (
-            <div key={r.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  {getDeviceIcon(r.device)}
-                </div>
-                <div>
-                  <p className="text-sm font-bold">{r.device} ({r.id})</p>
-                  <p className="text-xs text-slate-400">Location: {r.area}, {r.city} • Slot: {r.pickupDate} ({r.timeSlot})</p>
-                  
-                  {r.status === 'Accepted' && (
-                    <p className="text-xs text-emerald-400 font-semibold mt-1 flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Worker Assigned: {r.assignedWorker} (+{r.points} PTS credited)
-                    </p>
-                  )}
-                  {r.status === 'Rejected' && (
-                    <p className="text-xs text-rose-400 font-semibold mt-1 flex items-center gap-1">
-                      <XCircle className="w-3.5 h-3.5" /> Rejection Reason: {r.rejectionReason}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
-                r.status === 'Accepted' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                r.status === 'Rejected' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-              }`}>
-                {r.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
 
-function InfoView({ isDark }) {
+function HistoryView({ requests, isDark }) {
+  const [qrModalReq, setQrModalReq] = useState(null);
+
+  return (
+    <div className="space-y-6">
+      <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <h3 className={`text-lg font-bold mb-1 flex items-center gap-2 ${isDark ? 'text-lime-400' : 'text-emerald-600'}`}>
+          <History className="w-5 h-5" /> Recycled Devices History & Live Stages
+        </h3>
+        <p className="text-xs text-slate-400 mb-6">Track the 4-stage lifecycle of your submitted devices. Points credit automatically once your QR code is verified upon pickup.</p>
+
+        {requests.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-8">No recycled devices yet. Visit Recycle Devices to schedule your first pickup!</p>
+        ) : (
+          <div className="space-y-4">
+            {requests.map(r => {
+              const isAccepted = r.status === 'Accepted';
+              const isRejected = r.status === 'Rejected';
+              const isQRVerified = r.verifiedByQR === 1;
+
+              return (
+                <div key={r.id} className={`p-4 rounded-xl border space-y-4 ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex items-start gap-3">
+                      {r.deviceImage ? (
+                        <img src={r.deviceImage} alt={r.devices} className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0" />
+                      ) : (
+                        <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
+                          <Laptop className="w-6 h-6 text-lime-400" />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm font-bold">{r.devices} ({r.id})</p>
+                        <p className="text-xs text-slate-400">Location: {r.area}, {r.city} • Slot: {r.pickupDate} ({r.timeSlot})</p>
+                        
+                        {isAccepted && (
+                          <p className="text-xs text-emerald-400 font-semibold mt-1 flex items-center gap-1">
+                            <Truck className="w-3.5 h-3.5" /> Worker Dispatched: {r.assignedWorker} {isQRVerified ? '• QR Verified ✓' : ''}
+                          </p>
+                        )}
+                        {isRejected && (
+                          <p className="text-xs text-rose-400 font-semibold mt-1 flex items-center gap-1">
+                            <XCircle className="w-3.5 h-3.5" /> Rejection Reason: {r.rejectionReason}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isAccepted && !isQRVerified && (
+                        <button 
+                          onClick={() => setQrModalReq(r)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
+                            isDark ? 'bg-sky-500/10 text-sky-400 border-sky-500/30 hover:bg-sky-500/20' : 'bg-sky-50 text-sky-700 border-sky-200'
+                          }`}>
+                          <QrCode className="w-4 h-4" /> View QR Code
+                        </button>
+                      )}
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
+                        isAccepted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                        isRejected ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                        'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                      }`}>
+                        {isAccepted && isQRVerified ? 'Completed & Verified' : r.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {!isRejected && (
+                    <div className="pt-2 border-t border-slate-800/60">
+                      <div className="grid grid-cols-4 gap-2 text-[10px] font-semibold text-center">
+                        <div className="space-y-1">
+                          <div className="h-1.5 rounded-full bg-emerald-400" />
+                          <span className="text-emerald-400">1. Request Received</span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className={`h-1.5 rounded-full ${isAccepted ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                          <span className={isAccepted ? 'text-emerald-400' : 'text-slate-500'}>2. Worker Dispatched</span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className={`h-1.5 rounded-full ${isAccepted && isQRVerified ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                          <span className={isAccepted && isQRVerified ? 'text-emerald-400' : 'text-slate-500'}>3. QR Verified</span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className={`h-1.5 rounded-full ${isAccepted && isQRVerified ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                          <span className={isAccepted && isQRVerified ? 'text-emerald-400' : 'text-slate-500'}>4. +{r.points} PTS Credited</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {qrModalReq && qrModalReq.verifiedByQR === 0 && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`max-w-sm w-full p-6 rounded-2xl border text-center space-y-4 ${
+            isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <h3 className="text-lg font-bold">Pickup Verification QR</h3>
+            <p className="text-xs text-slate-400">Request {qrModalReq.id} • {qrModalReq.devices}</p>
+
+            <div className="w-48 h-48 mx-auto bg-white p-4 rounded-2xl shadow-inner flex flex-col items-center justify-center border-4 border-slate-900">
+              <QrCode className="w-36 h-36 text-slate-900" />
+              <span className="text-[10px] font-mono font-bold text-slate-600 mt-1">{qrModalReq.qrCode}</span>
+            </div>
+
+            <p className="text-xs text-slate-400">Show this QR code to your assigned field worker upon pickup to verify completion and release your +{qrModalReq.points} PTS.</p>
+
+            <button 
+              onClick={() => setQrModalReq(null)}
+              className={`w-full py-2 rounded-xl text-xs font-bold ${
+                isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'
+              }`}>
+              Close QR Modal
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfoViewWithMapAndLinks({ isDark }) {
+  const [selectedHub, setSelectedHub] = useState('Mumbai');
+
+  const hubsData = {
+    Mumbai: { title: "Mumbai Regional Hub", address: "Andheri West Collection Center, Mumbai", capacity: "84% Capacity", workers: 3, status: "Active & Dispatched" },
+    Delhi: { title: "Delhi NCR Hub", address: "Saket Metro Station Depot, South Delhi", capacity: "62% Capacity", workers: 4, status: "Active & Dispatched" },
+    Bengaluru: { title: "Bengaluru Tech Hub", address: "Koramangala 5th Block Depot, Bengaluru", capacity: "78% Capacity", workers: 4, status: "Active & Dispatched" }
+  };
+
+  const currentHub = hubsData[selectedHub];
+
   const externalResources = [
     { title: "UN Global E-Waste Monitor", desc: "Official statistics and research reports on world electronic waste trends.", link: "https://ewastemonitor.info/" },
     { title: "CPCB E-Waste Guidelines", desc: "Central Pollution Control Board regulations and certified dismantler lists.", link: "https://cpcb.nic.in/e-waste/" },
@@ -851,65 +1346,45 @@ function InfoView({ isDark }) {
     { title: "iFixit Repair Guides", desc: "Open-source repair manuals to fix electronics instead of throwing them away.", link: "https://www.ifixit.com/" }
   ];
 
-  const serviceHubs = [
-    { city: "Mumbai", areas: "Andheri, Bandra, Powai, South Mumbai", status: "Active Hub" },
-    { city: "Delhi", areas: "South Delhi, Dwarka, Connaught Place", status: "Active Hub" },
-    { city: "Bengaluru", areas: "Koramangala, Whitefield, Indiranagar", status: "Active Hub" }
-  ];
-
   return (
     <div className="space-y-6">
       <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
         <h2 className={`text-lg font-bold flex items-center gap-2 mb-2 ${isDark ? 'text-lime-400' : 'text-emerald-600'}`}>
-          <Info className="w-5 h-5" /> Understanding E-Waste & Sustainability
+          <MapPin className="w-5 h-5" /> Interactive Hub Map & Collection Centers
         </h2>
-        <p className="text-xs text-slate-400">
-          Electronic waste is the fastest-growing solid waste stream in the world. Proper recycling prevents toxic contamination and recovers rare minerals.
-        </p>
-      </div>
+        <p className="text-xs text-slate-400 mb-6">Click on any regional metropolis node to inspect live hub logistics and field worker status:</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-          <ShieldAlert className="w-6 h-6 text-rose-500 mb-2" />
-          <h3 className="text-sm font-bold mb-1">Hazardous Materials</h3>
-          <p className="text-xs text-slate-400">Lead, mercury, and cadmium in circuit boards can leach into groundwater if dumped in landfills.</p>
-        </div>
-
-        <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-          <Cpu className={`w-6 h-6 mb-2 ${isDark ? 'text-lime-400' : 'text-emerald-600'}`} />
-          <h3 className="text-sm font-bold mb-1">Precious Mineral Recovery</h3>
-          <p className="text-xs text-slate-400">1 ton of smartphones contains 100x more gold than 1 ton of raw gold ore.</p>
-        </div>
-
-        <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-          <Wrench className="w-6 h-6 text-amber-500 mb-2" />
-          <h3 className="text-sm font-bold mb-1">Right to Repair</h3>
-          <p className="text-xs text-slate-400">Extending a laptop's life by just 2 years reduces its carbon footprint by over 30%.</p>
-        </div>
-      </div>
-
-      <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-        <h3 className="text-md font-bold mb-2 flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-rose-500" /> Active Service Hubs in India
-        </h3>
-        <p className="text-xs text-slate-400 mb-4">E-Wise currently provides direct home pickup and worker dispatch across major metropolitan hubs in India.</p>
-
-        <div className={`p-6 rounded-2xl border relative overflow-hidden flex flex-col items-center justify-center text-center ${
-          isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-emerald-50/50 border-emerald-100'
-        }`}>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full z-10">
-            {serviceHubs.map((hub, i) => (
-              <div key={i} className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-                <div className="flex items-center justify-center gap-1.5 mb-2">
-                  <MapPin className="w-4 h-4 text-rose-500" />
-                  <span className="font-bold text-sm">{hub.city}</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mb-2">{hub.areas}</p>
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {hub.status}
-                </span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          {['Mumbai', 'Delhi', 'Bengaluru'].map(city => (
+            <button
+              key={city}
+              onClick={() => setSelectedHub(city)}
+              className={`p-4 rounded-xl border text-left transition ${
+                selectedHub === city 
+                  ? (isDark ? 'bg-lime-400/10 border-lime-400 text-lime-400' : 'bg-emerald-50 border-emerald-600 text-emerald-700 font-bold') 
+                  : (isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600')
+              }`}>
+              <div className="flex items-center gap-2 mb-1">
+                <MapPin className="w-4 h-4" />
+                <span className="font-bold text-sm">{city} Hub</span>
               </div>
-            ))}
+              <p className="text-[11px] opacity-80">{hubsData[city].status}</p>
+            </button>
+          ))}
+        </div>
+
+        <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-md font-bold">{currentHub.title}</h3>
+              <p className="text-xs text-slate-400 mt-1">📍 Address: {currentHub.address}</p>
+              <p className="text-xs text-slate-400 mt-0.5">👷 Active Field Workers: {currentHub.workers} teams deployed</p>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {currentHub.capacity}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -961,11 +1436,7 @@ function ClaimRewardsView({ user, setUser, isDark }) {
     const res = await fetch(`${API_BASE}/claim-reward`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: user.userId,
-        cost: reward.cost,
-        rewardTitle: reward.title
-      })
+      body: JSON.stringify({ userId: user.userId, cost: reward.cost })
     });
 
     const data = await res.json();
@@ -980,17 +1451,6 @@ function ClaimRewardsView({ user, setUser, isDark }) {
 
   return (
     <div className="space-y-6">
-      {user.hasSeenOnboarding === 0 && (
-        <GuidedBanner 
-          title="Redeeming Vouchers"
-          steps={[
-            "Earn E-Points by having your pickup requests accepted by management.",
-            "Choose a voucher below and click Redeem Voucher once you have enough PTS balance."
-          ]}
-          isDark={isDark}
-        />
-      )}
-
       <div className={`p-6 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
         isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
       }`}>
@@ -1101,7 +1561,7 @@ function AdminLayout({ user, setUser, isDark }) {
                   : (isDark ? 'text-slate-400 hover:bg-slate-900' : 'text-slate-600 hover:bg-slate-100')
               }`}>
               <LayoutDashboard className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Admin Dashboard</span>}
+              {!collapsed && <span>Operations Overview</span>}
             </button>
 
             <button
@@ -1144,13 +1604,36 @@ function AdminLayout({ user, setUser, isDark }) {
 }
 
 function AdminDashboardHome({ user, requests, acceptedCount, rejectedCount, isDark }) {
+  const handleExportCSV = () => {
+    const headers = "Request ID,User ID,Devices,Status,QR Verified,Points,City,Area,Pickup Date,Assigned Worker\n";
+    const rows = requests.map(r => 
+      `"${r.id}","${r.userId}","${r.devices}","${r.status}","${r.verifiedByQR ? 'Yes' : 'No'}","${r.points}","${r.city}","${r.area}","${r.pickupDate}","${r.assignedWorker}"`
+    ).join("\n");
+
+    const blob = new Blob([headers + rows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ewise_operations_report_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
   return (
     <div className="space-y-6">
-      <div className={`p-6 rounded-2xl border bg-gradient-to-r ${
+      <div className={`p-6 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r ${
         isDark ? 'from-slate-900 to-slate-950 border-slate-800' : 'from-emerald-50 to-teal-50 border-emerald-100'
       }`}>
-        <h2 className="text-2xl font-bold">Welcome back, {user.name} (Management) 🛡️</h2>
-        <p className="text-xs text-slate-400 mt-1">Here is your live e-waste operations overview:</p>
+        <div>
+          <h2 className="text-2xl font-bold">Welcome back, {user.name} 🛡️</h2>
+          <p className="text-xs text-slate-400 mt-1">Here is your live municipal operations overview:</p>
+        </div>
+        <button 
+          onClick={handleExportCSV}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+            isDark ? 'bg-lime-400 text-black hover:bg-lime-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}>
+          <Download className="w-4 h-4" /> Export Operations CSV
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1186,17 +1669,19 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
   const [worker, setWorker] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
 
+  const handleOpenAcceptModal = (r) => {
+    setSelectedReq(r);
+    const recommendedWorker = getBestWorkerForArea(r.city, r.area);
+    setWorker(recommendedWorker);
+  };
+
   const handleAccept = async (requestId) => {
-    if (!worker) return alert('Please assign a field worker from that area.');
+    if (!worker) return alert('Please assign a field worker.');
 
     await fetch(`${API_BASE}/admin/verify-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestId,
-        status: 'Accepted',
-        assignedWorker: worker
-      })
+      body: JSON.stringify({ requestId, status: 'Accepted', assignedWorker: worker })
     });
 
     setSelectedReq(null);
@@ -1205,16 +1690,12 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
   };
 
   const handleReject = async (requestId) => {
-    if (!rejectionReason) return alert('Please enter a reason for rejection.');
+    if (!rejectionReason) return alert('Please enter a rejection reason.');
 
     await fetch(`${API_BASE}/admin/verify-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestId,
-        status: 'Rejected',
-        rejectionReason
-      })
+      body: JSON.stringify({ requestId, status: 'Rejected', rejectionReason })
     });
 
     setRejectModal(null);
@@ -1222,50 +1703,79 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
     fetchRequests();
   };
 
+  const handleScanQR = async (requestId) => {
+    await fetch(`${API_BASE}/verify-qr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId })
+    });
+    fetchRequests();
+  };
+
   return (
     <div className="space-y-6">
       <div className={`p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <h3 className="text-md font-bold mb-4">Pickup Requests Management Queue (Ordered by Arrival)</h3>
+        <h3 className="text-md font-bold mb-4">Pickup Requests Operations Queue</h3>
         
         <div className="space-y-4">
           {requests.map(r => (
             <div key={r.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
               isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
-              <div>
-                <p className="text-sm font-bold">{r.device} • <span className="text-amber-500">ID: {r.id}</span></p>
-                <p className="text-xs text-slate-400">User: <b>{r.userId}</b> • Action: <b>{r.action}</b> (+{r.points} PTS)</p>
-                <p className="text-xs text-slate-300 mt-1 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-rose-400" /> Location: <b>{r.area}, {r.city}</b>
-                </p>
-                <p className="text-xs text-slate-300 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-sky-400" /> Scheduled: <b>{r.pickupDate} ({r.timeSlot})</b>
-                </p>
-
-                {r.status === 'Accepted' && <p className="text-xs text-emerald-400 font-semibold mt-1">Assigned Worker: {r.assignedWorker}</p>}
-                {r.status === 'Rejected' && <p className="text-xs text-rose-400 font-semibold mt-1">Reason: {r.rejectionReason}</p>}
+              <div className="flex items-start gap-3">
+                {r.deviceImage && (
+                  <img src={r.deviceImage} alt={r.devices} className="w-14 h-14 rounded-xl object-cover border border-slate-700 shrink-0" />
+                )}
+                <div>
+                  <p className="text-sm font-bold">{r.devices} • <span className="text-amber-500">ID: {r.id}</span></p>
+                  <p className="text-xs text-slate-400">User: <b>{r.userId}</b> • (+{r.points} PTS upon QR verification)</p>
+                  <p className="text-xs text-slate-300 mt-1 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-rose-400" /> Location: <b>{r.area}, {r.city}</b>
+                  </p>
+                  {r.status === 'Accepted' && (
+                    <p className="text-xs text-emerald-400 font-semibold mt-1">
+                      Assigned: {r.assignedWorker} {r.verifiedByQR === 1 ? '• QR Verified & Points Credited ✓' : '• Awaiting QR Pickup Verification'}
+                    </p>
+                  )}
+                  {r.status === 'Rejected' && (
+                    <p className="text-xs text-rose-400 font-semibold mt-1">
+                      Rejected: {r.rejectionReason}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {r.status === 'Pending Verification' ? (
-                <div className="flex gap-2">
-                  <button onClick={() => setSelectedReq(r)} className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-                    isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'
-                  }`}>
-                    Accept & Assign Worker
-                  </button>
-                  <button onClick={() => setRejectModal(r)} className="px-3 py-1.5 bg-rose-500 text-white text-xs font-bold rounded-lg hover:bg-rose-600">
-                    Reject
-                  </button>
-                </div>
-              ) : (
+              <div className="flex items-center gap-2">
+                {r.status === 'Pending Verification' && (
+                  <>
+                    <button onClick={() => handleOpenAcceptModal(r)} className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
+                      isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'
+                    }`}>
+                      Accept & Assign
+                    </button>
+                    <button onClick={() => setRejectModal(r)} className="px-3 py-1.5 bg-rose-500 text-white text-xs font-bold rounded-lg">
+                      Reject
+                    </button>
+                  </>
+                )}
+                {r.status === 'Accepted' && r.verifiedByQR === 0 && (
+                  <>
+                    <button onClick={() => handleScanQR(r.id)} className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-lg flex items-center gap-1">
+                      <QrCode className="w-3.5 h-3.5" /> Scan QR
+                    </button>
+                    <button onClick={() => setRejectModal(r)} className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white text-xs font-bold rounded-lg">
+                      Reject
+                    </button>
+                  </>
+                )}
                 <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
                   r.status === 'Accepted' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
                   r.status === 'Rejected' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
                   'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                 }`}>
-                  {r.status}
+                  {r.status === 'Accepted' && r.verifiedByQR === 1 ? 'Completed' : r.status}
                 </span>
-              )}
+              </div>
             </div>
           ))}
         </div>
@@ -1274,16 +1784,23 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
       {selectedReq && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`max-w-md w-full p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
-            <h3 className="text-lg font-bold mb-2">Accept Pickup & Allot Worker</h3>
-            <p className="text-xs text-slate-400 mb-4">Location: {selectedReq.area}, {selectedReq.city}</p>
+            <h3 className="text-lg font-bold mb-1">Accept Pickup & Allot Worker</h3>
+            <p className="text-xs text-slate-400 mb-3">Pickup Hub: <b>{selectedReq.area}, {selectedReq.city}</b></p>
 
-            <label className="block text-xs font-medium mb-1">Select Local Area Worker ({selectedReq.city})</label>
+            {selectedReq.deviceImage && (
+              <div className="mb-4">
+                <p className="text-[11px] text-slate-400 mb-1">Uploaded Device Condition Photo:</p>
+                <img src={selectedReq.deviceImage} alt="Device verification" className="w-full h-36 object-cover rounded-xl border border-slate-800" />
+              </div>
+            )}
+
+            <label className="block text-xs font-medium mb-1">Field Worker ({selectedReq.city})</label>
             <select value={worker} onChange={e => setWorker(e.target.value)} className={`w-full p-2 text-xs rounded-xl border mb-4 ${
               isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'
             }`}>
               <option value="">-- Choose Field Worker --</option>
               {(WORKERS_BY_CITY[selectedReq.city] || []).map((w, i) => (
-                <option key={i} value={w}>{w}</option>
+                <option key={i} value={w.name}>{w.name}</option>
               ))}
             </select>
 
@@ -1291,7 +1808,7 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
               <button onClick={() => handleAccept(selectedReq.id)} className={`flex-1 py-2 rounded-xl text-xs font-bold ${
                 isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'
               }`}>
-                Confirm Assignment & Credit Points
+                Confirm Assignment
               </button>
               <button onClick={() => setSelectedReq(null)} className="px-4 py-2 border border-slate-700 text-slate-400 rounded-xl text-xs">
                 Cancel
@@ -1304,20 +1821,22 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
       {rejectModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`max-w-md w-full p-6 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
-            <h3 className="text-lg font-bold mb-2 text-rose-500">Reject Pickup Request</h3>
-            <p className="text-xs text-slate-400 mb-4">Provide a reason for rejecting request {rejectModal.id}</p>
-
+            <h3 className="text-lg font-bold mb-1 text-rose-500">Reject Pickup Request ({rejectModal.id})</h3>
+            <p className="text-xs text-slate-400 mb-3">
+              {rejectModal.status === 'Accepted' 
+                ? 'Rejecting at field QR verification stage (e.g., device mismatch or damaged beyond condition):' 
+                : 'Enter reason for rejecting this request:'}
+            </p>
             <textarea 
               rows={3} required
-              placeholder="e.g. Hazardous battery condition beyond pickup limits, invalid details provided."
+              placeholder="Reason for rejection..."
               value={rejectionReason} onChange={e => setRejectionReason(e.target.value)}
               className={`w-full p-2 text-xs rounded-xl border mb-4 focus:outline-none ${
                 isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'
               }`}
             />
-
             <div className="flex gap-2">
-              <button onClick={() => handleReject(rejectModal.id)} className="flex-1 py-2 bg-rose-500 text-white rounded-xl text-xs font-bold hover:bg-rose-600">
+              <button onClick={() => handleReject(rejectModal.id)} className="flex-1 py-2 bg-rose-500 text-white rounded-xl text-xs font-bold">
                 Confirm Rejection
               </button>
               <button onClick={() => setRejectModal(null)} className="px-4 py-2 border border-slate-700 text-slate-400 rounded-xl text-xs">
@@ -1334,64 +1853,30 @@ function AdminRequestsView({ requests, fetchRequests, isDark }) {
 function SmartAssistantWidget({ user, isDark }) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
-  
   const isManagement = user?.role === 'management';
-
   const initialBotMsg = isManagement
-    ? 'Hello Operations Admin! Ask me about worker assignment protocols, rejection guidelines, or verification policies.'
-    : 'Hello! I am your E-Wise Smart Assistant. Ask me anything about e-waste disposal, preparation, or point rewards!';
-
+    ? 'Hello! Ask me about QR verification, rejecting mismatched items at pickup, or CSV exports.'
+    : 'Hello! I am your E-Wise Smart Assistant. Ask me about Recycle Devices, QR verification, or History!';
   const [messages, setMessages] = useState([{ sender: 'bot', text: initialBotMsg }]);
-
-  const recyclerSuggestions = [
-    "What is e-waste?",
-    "How to handle devices before pickup?",
-    "When are points credited?",
-    "What items can I recycle?"
-  ];
-
-  const managementSuggestions = [
-    "Valid rejection reasons?",
-    "How to assign a field worker?",
-    "When are user points credited?",
-    "How to check city pickup hubs?"
-  ];
-
-  const suggestions = isManagement ? managementSuggestions : recyclerSuggestions;
 
   const handleSend = (textToSend) => {
     const text = textToSend || input;
     if (!text.trim()) return;
-
     setMessages(prev => [...prev, { sender: 'user', text }]);
     setInput('');
 
     setTimeout(() => {
-      let botReply = "I am here to guide you with your E-Wise queries!";
+      let botReply = "I am here to guide you!";
       const q = text.toLowerCase();
-
-      if (isManagement) {
-        if (q.includes('reject') || q.includes('reasons')) {
-          botReply = "⚠️ Valid rejection reasons include: hazardous damaged battery cells, unverified non-electronic items, or invalid contact details.";
-        } else if (q.includes('assign') || q.includes('worker')) {
-          botReply = "👷 Click 'Accept & Assign Worker' on any pending request, then select an active field worker allocated to that city hub (Mumbai, Delhi, or Bengaluru).";
-        } else if (q.includes('credited') || q.includes('points')) {
-          botReply = "⭐ User points are automatically credited to their account balance as soon as you confirm worker assignment for their request!";
-        } else if (q.includes('hubs') || q.includes('city')) {
-          botReply = "📍 Active hubs are configured for South/West/Central zones in Mumbai, Delhi, and Bengaluru.";
-        }
-      } else {
-        if (q.includes('what is e-waste') || q.includes('e-waste')) {
-          botReply = "♻️ E-waste refers to discarded electronic devices like laptops, smartphones, chargers, and batteries that contain toxic materials as well as recyclable minerals.";
-        } else if (q.includes('handle') || q.includes('prepare') || q.includes('before')) {
-          botReply = "📦 Before pickup: 1. Backup and wipe personal data. 2. Remove SIM/SD cards. 3. Pack battery items safely in a sealed bag or box.";
-        } else if (q.includes('credited') || q.includes('points')) {
-          botReply = "⏳ Points remain pending until management verifies your request and dispatches a local area worker.";
-        } else if (q.includes('items') || q.includes('recycle')) {
-          botReply = "💻 We accept laptops, PCs, smartphones, tablets, lithium batteries, chargers, and peripheral cables.";
-        }
+      if (q.includes('recycle') || q.includes('cart')) {
+        botReply = "♻️ Go to 'Recycle Devices' to add multiple items, attach photos, analyze points, and schedule a pickup.";
+      } else if (q.includes('qr') || q.includes('points')) {
+        botReply = "📱 Once your request is accepted, open 'History' and click 'View QR Code'. Points credit as soon as the worker scans it!";
+      } else if (q.includes('history') || q.includes('stage')) {
+        botReply = "📜 The 'History' tab tracks all 4 stages: Request Received, Worker Dispatched, QR Verified, and PTS Credited.";
+      } else if (q.includes('csv') || q.includes('report')) {
+        botReply = "📊 Click 'Export Operations CSV' on the Operations Overview to download a full collection audit report.";
       }
-
       setMessages(prev => [...prev, { sender: 'bot', text: botReply }]);
     }, 400);
   };
@@ -1404,7 +1889,7 @@ function SmartAssistantWidget({ user, isDark }) {
             isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'
           }`}>
             <div className={`p-3 font-bold flex justify-between items-center text-xs ${isDark ? 'bg-lime-400 text-black' : 'bg-emerald-600 text-white'}`}>
-              <span className="flex items-center gap-2"><Bot className="w-4 h-4" /> {isManagement ? 'Operations Advisor' : 'E-Wise Assistant'}</span>
+              <span className="flex items-center gap-2"><Bot className="w-4 h-4" /> E-Wise Assistant</span>
               <button onClick={() => setIsOpen(false)}><X className="w-4 h-4" /></button>
             </div>
 
@@ -1415,19 +1900,6 @@ function SmartAssistantWidget({ user, isDark }) {
                     {m.text}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div className="p-2 border-t border-slate-800/50 flex flex-wrap gap-1 bg-slate-900/30">
-              {suggestions.map((sug, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSend(sug)}
-                  className={`text-[10px] px-2 py-1 rounded-lg border transition ${
-                    isDark ? 'bg-slate-900 border-slate-700 text-lime-400 hover:bg-slate-800' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                  }`}>
-                  {sug}
-                </button>
               ))}
             </div>
 

@@ -46,5 +46,5 @@ Make sure you have [Node.js](https://nodejs.org/) (v18 or higher) installed on y
 
 ### 1. Clone the repository
 ```bash
-git clone [https://github.com/your-username/E-Wise.git](https://github.com/your-username/E-Wise.git)
+git clone [https://github.com/garima2508/E-Wise.git](https://github.com/garima2508/E-Wise.git)
 cd E-Wise
